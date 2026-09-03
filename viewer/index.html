@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Camera Monitor (P2P Viewer)</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- MQTT for Zero-Cost Signaling -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="cctv-header">
+    <div class="cctv-logo">
+      <span>📹</span>
+      <span>CCTV Monitor Station</span>
+    </div>
+
+    <div class="cctv-meta">
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;">
+        <span style="color: var(--text-secondary);">ห้อง:</span>
+        <input type="text" id="inputRoomId" placeholder="เช่น cam-1234" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--accent-blue); padding: 4px 8px; border-radius: 6px; font-weight: 600; width: 110px; text-align: center;">
+        <button id="btnJoinRoom" class="btn-action" style="padding: 4px 10px;">เชื่อมต่อ</button>
+      </div>
+      <div id="statusBadge" class="badge badge-waiting">กำลังรอห้อง...</div>
+    </div>
+  </header>
+
+  <!-- Main Video Stage -->
+  <main class="stage-container">
+    <div class="viewport-wrapper">
+      <!-- Remote Video Stream (Muted by default to bypass browser autoplay block) -->
+      <video id="remoteVideo" autoplay playsinline muted></video>
+
+      <!-- Waiting Placeholder -->
+      <div id="videoPlaceholder" class="viewport-placeholder">
+        <div style="font-size: 3rem; animation: pulse 2s infinite;">📡</div>
+        <div style="font-size: 1.1rem; font-weight: 600;">กำลังรอสัญญาณภาพจากกล้อง</div>
+        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+          กรุณาเปิดหน้า Camera Node บนมือถือด้วยรหัสห้อง <span id="hintRoomId" style="color: var(--accent-blue); font-weight: 700;">cam-....</span>
+        </div>
+      </div>
+
+      <!-- OSD Overlay -->
+      <div class="osd-top">
+        <div class="osd-live-group">
+          <span class="osd-live-tag">LIVE</span>
+          <span id="osdRecTag" style="display: none; background: rgba(248,81,73,0.9); color: #fff; font-size: 0.75rem; font-weight: 700; padding: 3px 8px; border-radius: 4px;">● REC</span>
+        </div>
+
+        <div class="osd-telemetry">
+          <span id="statBattery">🔋 --%</span>
+          <span id="statRes">HD</span>
+          <span id="statFps">-- FPS</span>
+        </div>
+      </div>
+
+      <!-- Motion Alert Banner -->
+      <div id="motionAlertBanner" class="motion-alert-banner">
+        <span>🚨 ตรวจพบความเคลื่อนไหว! (Motion Alert)</span>
+      </div>
+    </div>
+
+    <!-- Remote Control Deck -->
+    <div class="control-deck">
+      <div class="deck-group">
+        <!-- Remote Torch -->
+        <button id="btnRemoteTorch" class="btn-action" title="เปิด/ปิด ไฟฉายบนกล้องมือถือ">
+          <span>💡</span> <span>ไฟฉายกล้อง</span>
+        </button>
+
+        <!-- Remote Flip Camera -->
+        <button id="btnRemoteFlip" class="btn-action" title="สั่งสลับกล้องหน้า/หลัง">
+          <span>🔄</span> <span>สลับกล้อง</span>
+        </button>
+
+        <!-- Remote Camera Record -->
+        <button id="btnRemoteRecord" class="btn-action danger" title="สั่งให้มือถือกล้องเริ่มบันทึกคลิปลงเครื่องกล้อง">
+          <span>🔴</span> <span id="remoteRecText">สั่งอัดที่กล้อง</span>
+        </button>
+
+        <!-- Camera Settings (Motion, Schedule, Storage, Duration) -->
+        <button id="btnOpenSettings" class="btn-action" title="ตั้งค่าระบบกล้อง ตรวจจับความเคลื่อนไหว และพื้นที่จัดเก็บ">
+          <span>⚙️</span> <span>ตั้งค่ากล้อง</span>
+        </button>
+      </div>
+
+      <div class="deck-group">
+        <!-- Snapshot Frame -->
+        <button id="btnSnapshot" class="btn-action" title="จับภาพหน้าจอทันที">
+          <span>📸</span> <span>แคปภาพ</span>
+        </button>
+
+        <!-- Local Record on Viewer Device -->
+        <button id="btnLocalRecord" class="btn-action" title="บันทึกวิดีโอลงเครื่องคอมพิวเตอร์/จอดูดาวน์โหลดสด">
+          <span>⏺️</span> <span id="localRecText">อัดลงเครื่องนี้</span>
+        </button>
+
+        <!-- Remote Clips Storage Explorer -->
+        <button id="btnBrowseClips" class="btn-action" title="เปิดดูไฟล์วิดีโอที่บันทึกไว้ในตัวกล้อง">
+          <span>📁</span> <span>ไฟล์ในกล้อง (<span id="clipsBadge">0</span>)</span>
+        </button>
+
+        <!-- Audio Mute/Unmute -->
+        <button id="btnToggleAudio" class="btn-action" title="เปิด/ปิด เสียงจากกล้อง">
+          <span id="audioIcon">🔇</span> <span id="audioBtnText">เปิดเสียง</span>
+        </button>
+
+        <!-- Fullscreen -->
+        <button id="btnFullscreen" class="btn-action" title="เต็มจอ">
+          <span>⛶</span>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Remote Clips Explorer Modal -->
+  <div id="clipsModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div style="font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <span>📁</span>
+          <span>คลังวิดีโอบนเครื่องกล้อง (Remote Storage)</span>
+        </div>
+        <button id="btnCloseClips" class="btn-action" style="padding: 4px 8px;">✕</button>
+      </div>
+
+      <!-- Storage Info Bar -->
+      <div id="storageBarBox" style="background: var(--bg-card); padding: 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+          <span>📦 พื้นที่ใช้งาน: <span id="txtStorageUsed" style="font-weight: 700; color: var(--accent-blue);">0 B / 500 MB</span></span>
+          <span id="txtStoragePercent" style="font-weight: 700;">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div id="storageProgressFill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div style="font-size: 0.85rem; color: var(--text-secondary);">
+        ไฟล์เหล่านี้ถูกบันทึกไว้ในหน่วยความจำของมือถือเครื่องกล้อง สามารถกดดูหรือดาวน์โหลดได้ทันที
+      </div>
+
+      <div id="downloadProgressBar" style="display: none;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+          <span>กำลังโหลดคลิปจากกล้อง...</span>
+          <span id="dlPercentText">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div id="dlProgressFill" class="progress-bar-fill"></div>
+        </div>
+      </div>
+
+      <div id="remoteClipsList" class="clip-table">
+        <div style="text-align: center; color: var(--text-secondary); padding: 30px;">
+          กำลังเชื่อมต่อดึงรายการไฟล์จากกล้อง...
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+        <button id="btnClearAllClipsRemote" class="btn-action danger" style="color: var(--accent-red);">
+          🗑️ ล้างไฟล์ทั้งหมดในกล้อง
+        </button>
+        <button id="btnRefreshClips" class="btn-action">🔄 รีเฟรชรายการ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera Settings Modal -->
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 520px;">
+      <div class="modal-head">
+        <div style="font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <span>⚙️</span>
+          <span>ตั้งค่าระบบกล้อง (Camera Settings)</span>
+        </div>
+        <button id="btnCloseSettings" class="btn-action" style="padding: 4px 8px;">✕</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: 65vh; padding: 4px;">
+        
+        <!-- 1. Motion Detection Toggle & Schedule -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.95rem;">⚡ ตรวจจับความเคลื่อนไหว (Motion Detection)</div>
+              <div style="font-size: 0.75rem; color: var(--text-secondary);">เปิด/ปิด การวิเคราะห์ความเคลื่อนไหว</div>
+            </div>
+            <label style="display: flex; align-items: center; cursor: pointer; gap: 6px;">
+              <input type="checkbox" id="chkMotionEnabled" checked style="width: 18px; height: 18px; cursor: pointer;">
+              <span id="txtMotionStatus" style="font-size: 0.85rem; font-weight: 600; color: var(--accent-green);">เปิด</span>
+            </label>
+          </div>
+
+          <!-- Sensitivity -->
+          <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+              <span>ระดับความไว (Sensitivity):</span>
+              <span id="viewSensVal" style="font-weight: 700; color: var(--accent-blue);">25%</span>
+            </div>
+            <input type="range" id="viewSensSlider" min="5" max="95" value="25" style="width: 100%;">
+          </div>
+
+          <!-- Schedule -->
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600;">
+              <input type="checkbox" id="chkScheduleEnabled" style="width: 16px; height: 16px;">
+              <span>ตั้งเวลาเปิด-ปิดตรวจจับ (Schedule)</span>
+            </label>
+            <div id="scheduleTimeGroup" style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
+              <span>เริ่มเปิด:</span>
+              <input type="time" id="timeScheduleStart" value="22:00" style="background: #111; border: 1px solid var(--border-color); color: #fff; padding: 4px 8px; border-radius: 6px;">
+              <span>ปิด:</span>
+              <input type="time" id="timeScheduleEnd" value="06:00" style="background: #111; border: 1px solid var(--border-color); color: #fff; padding: 4px 8px; border-radius: 6px;">
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Clip Duration -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-weight: 600; font-size: 0.95rem;">⏱️ ความยาวคลิปสูงสุดต่อครั้ง</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">ความยาวคลิปเมื่อเกิด Motion หรือสั่งบันทึก</div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
+            <input type="number" id="inputDurationMin" min="0" max="60" value="0" style="width: 70px; background: #111; border: 1px solid var(--border-color); color: #fff; padding: 6px; border-radius: 6px; text-align: center;">
+            <span>นาที</span>
+            <input type="number" id="inputDurationSec" min="5" max="59" value="15" style="width: 70px; background: #111; border: 1px solid var(--border-color); color: #fff; padding: 6px; border-radius: 6px; text-align: center;">
+            <span>วินาที</span>
+          </div>
+        </div>
+
+        <!-- 3. Storage Limit & Current Usage -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-weight: 600; font-size: 0.95rem;">💾 จัดการพื้นที่จัดเก็บบนกล้อง (Storage)</div>
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+            <span>จำกัดพื้นที่สูงสุดก่อนลบคลิปเก่า:</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="number" id="inputMaxStorageMB" min="50" max="10000" value="500" style="width: 85px; background: #111; border: 1px solid var(--border-color); color: #fff; padding: 6px; border-radius: 6px; text-align: center; font-weight: 700;">
+              <span>MB</span>
+            </div>
+          </div>
+
+          <!-- Current usage indicator -->
+          <div style="background: rgba(0,0,0,0.4); padding: 8px; border-radius: 6px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">
+              <span>ปัจจุบันใช้ไป: <b id="statStorageText" style="color: #fff;">0 B / 500 MB</b></span>
+              <span id="statStoragePercentText" style="color: var(--accent-blue); font-weight: 700;">0%</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="settingsStorageProgressFill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Clear all button -->
+          <button id="btnClearAllClipsSettings" class="btn-action danger" style="padding: 8px 12px; color: var(--accent-red); justify-content: center; margin-top: 4px;">
+            🗑️ ล้างไฟล์วิดีโอที่บันทึกไว้ทั้งหมด
+          </button>
+        </div>
+
+        <!-- 4. Eco Power & Cooling Settings -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-weight: 600; font-size: 0.95rem;">🌿 ประหยัดพลังงาน & ระบายความร้อน (Eco Mode)</div>
+          
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem;">
+            <input type="checkbox" id="chkAutoOled" checked style="width: 16px; height: 16px;">
+            <span>พักหน้าจอเครื่องกล้องอัตโนมัติเมื่อไม่มีความเคลื่อนไหว 15 วินาที</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem;">
+            <input type="checkbox" id="chkAutoFps" checked style="width: 16px; height: 16px;">
+            <span>ลดเฟรมเรทกล้องเหลือ 10 FPS อัตโนมัติเมื่อภาพนิ่ง (เร่งเป็น 30 FPS ทันทีเมื่อมีคน)</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+        <button id="btnSaveSettings" class="btn-action" style="background: var(--accent-blue); color: #000; font-weight: 700; padding: 10px 20px;">
+          💾 บันทึกการตั้งค่าไปยังกล้อง
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Playback Modal -->
+  <div id="playbackModal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 800px;">
+      <div class="modal-head">
+        <div style="font-weight: 700; font-size: 1rem;">เล่นวิดีโอย้อนหลัง</div>
+        <button id="btnClosePlayback" class="btn-action" style="padding: 4px 8px;">✕</button>
+      </div>
+      <video id="playbackVideo" controls autoplay style="width: 100%; border-radius: 8px; max-height: 60vh; background: #000;"></video>
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button id="btnDownloadCurrentPlayback" class="btn-action" style="background: var(--accent-green); color: #000; font-weight: 700;">
+          ⬇ บันทึกคลิปนี้ลงคอมพิวเตอร์
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../shared/config.js?v=4"></script>
+  <script src="../shared/signaling.js?v=4"></script>
+  <script src="js/webrtc-view.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
+</body>
+</html>

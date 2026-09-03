@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+*.pyc
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+inst_user_settings.tmp
+*.tmp

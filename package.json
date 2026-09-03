@@ -1,0 +1,18 @@
+{
+  "name": "ipcameraphone",
+  "version": "1.0.0",
+  "description": "ระบบกล้องวงจรปิด IP Camera แบบ Peer-to-Peer (P2P) น้ำหนักเบาพิเศษ กินทรัพยากรเครื่องต่ำมาก และ**ไม่มีค่าใช้จ่ายเซิร์ฟเวอร์คลาวด์ตลอดชีพ (Zero Cloud Cost)**",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1"
+  }
+}

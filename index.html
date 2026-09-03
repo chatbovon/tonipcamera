@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P IP Camera System</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #131b2e;
+      --border: #222f4c;
+      --accent: #38bdf8;
+      --accent-green: #4ade80;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      text-align: center;
+    }
+    .badge-hero {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #fff 40%, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p.desc {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      margin-bottom: 36px;
+      line-height: 1.6;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      text-align: left;
+      margin-bottom: 30px;
+    }
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+    }
+    .card-icon {
+      font-size: 2.2rem;
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .card-text {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #030712;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 12px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--accent);
+    }
+    .features-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 16px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .feature-tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="badge-hero">⚡ Zero Cloud Cost • Ultra-Lightweight WebRTC</div>
+    <h1>ระบบกล้อง IP Camera แบบ P2P</h1>
+    <p class="desc">
+      เปลี่ยนสมาร์ตโฟนเครื่องเก่าให้เป็นกล้องวงจรปิดอัจฉริยะ ตรวจจับความเคลื่อนไหว บันทึกวิดีโอในตัวเครื่อง<br>
+      และดูสดผ่าน P2P ความหน่วงต่ำพิเศษ (< 200ms) โดยไม่มีค่าบริการคลาวด์ตลอดชีพ
+    </p>
+
+    <div class="grid">
+      <!-- Card 1: Camera Node -->
+      <div class="card">
+        <div>
+          <div class="card-icon">📱</div>
+          <div class="card-title">ส่วนที่ 1: Camera Node (เครื่องส่ง)</div>
+          <div class="card-text">
+            เปิดบนอุปกรณ์มือถือที่ต้องการใช้เป็นกล้อง รองรับการปรับกล้องหน้า/หลัง, เปิดไฟฉาย, ตรวจจับความเคลื่อนไหว (Motion Alert), บันทึกลงเครื่องอัตโนมัติ และโหมดพักหน้าจอประหยัดพลังงาน (OLED Black Mode)
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button id="btnLaunchCam" class="btn">
+            <span>🚀 เริ่มใช้งานเป็นกล้องบนเว็บ (Web)</span>
+          </button>
+          <a href="/IPCam.apk" download="IPCam.apk" class="btn btn-outline" style="background: rgba(74, 222, 128, 0.15); border-color: #4ade80; color: #4ade80; text-decoration: none;">
+            <span>📥 ดาวน์โหลดแอพ Android (.APK)</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Card 2: Viewer Node -->
+      <div class="card">
+        <div>
+          <div class="card-icon">💻</div>
+          <div class="card-title">ส่วนที่ 2: Viewer Node (เครื่องดู)</div>
+          <div class="card-text">
+            เปิดบนคอมพิวเตอร์ แท็บเล็ต หรือมือถือเครื่องหลัก เพื่อมอนิเตอร์ภาพสดความละเอียดสูง รับการแจ้งเตือนความเคลื่อนไหว สั่งเปิดไฟฉายระยะไกล และค้นหา/ดาวน์โหลดคลิปจากตัวกล้อง
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="joinRoomInput" placeholder="รหัสห้อง เช่น cam-1234" style="flex: 1; background: #0a0e17; border: 1px solid var(--border); color: #fff; padding: 10px 12px; border-radius: 8px; font-weight: 600;">
+          <button id="btnLaunchView" class="btn btn-outline">
+            <span>เข้าดู (View)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Highlights -->
+    <div class="features-list">
+      <div class="feature-tag"><span>🔒</span> เข้ารหัส End-to-End DTLS-SRTP</div>
+      <div class="feature-tag"><span>⚡</span> ภาพสดไม่ดีเลย์ (< 200ms)</div>
+      <div class="feature-tag"><span>🔋</span> กิน CPU 1-2% เครื่องไม่ร้อน</div>
+      <div class="feature-tag"><span>💾</span> เก็บไฟล์ในเครื่อง ไม่เสียค่าคลาวด์</div>
+    </div>
+  </div>
+
+  <script src="shared/config.js"></script>
+  <script>
+    const generatedRoom = generateRoomId();
+    document.getElementById('btnLaunchCam').addEventListener('click', () => {
+      window.location.href = `camera/index.html?room=${generatedRoom}`;
+    });
+
+    document.getElementById('btnLaunchView').addEventListener('click', () => {
+      const room = document.getElementById('joinRoomInput').value.trim() || generatedRoom;
+      window.location.href = `viewer/index.html?room=${room}`;
+    });
+  </script>
+</body>
+</html>
