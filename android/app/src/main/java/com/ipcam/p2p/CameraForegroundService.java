@@ -1,4 +1,4 @@
-package com.ipcam.p2p;
+๏ปฟpackage com.ipcam.p2p;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -65,20 +65,25 @@ public class CameraForegroundService extends Service {
                 : PendingIntent.FLAG_UPDATE_CURRENT
         );
 
+        int iconRes = android.R.drawable.ic_menu_camera;
+        try {
+            int appIcon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+            if (appIcon != 0) iconRes = appIcon;
+        } catch (Exception ignored) {}
+
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("?? IP Camera กำลังทำงาน")
-            .setContentText("ระบบตรวจจับและสตรีมภาพสดเปิดอยู่ในพื้นหลัง 24 ชม.")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("IP Camera Active")
+            .setContentText("Background streaming and motion detection active 24/7")
+            .setSmallIcon(iconRes)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build();
 
-        // 3. Start foreground with camera type on Android 14+ / Android 10+
+        // 3. Start foreground with camera type on Android 10+ / Android 14+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
-            startForeground(NOTIFICATION_ID, notification, serviceType);
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -115,7 +120,7 @@ public class CameraForegroundService extends Service {
                 "IP Camera Background Streaming",
                 NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("รักษาการทำงานของกล้องและการสตรีม P2P ตลอด 24 ชม.");
+            channel.setDescription("Keeps camera and P2P streaming active 24/7");
             channel.setShowBadge(false);
 
             NotificationManager manager = getSystemService(NotificationManager.class);
