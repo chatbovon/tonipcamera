@@ -99,23 +99,78 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     },
     onError: (err) => {
-      alert('ไม่สามารถเข้าถึงกล้องได้: ' + err.message + '\nโปรดตรวจสอบสิทธิ์การเข้าถึงกล้องและไมโครโฟน');
+      console.error('[App] Camera error:', err);
+      showVideoPlaceholder('แตะที่นี่เพื่อเปิดกล้องอีกครั้ง<br><small>(' + (err.message || 'Permission/Device Error') + ')</small>');
     }
   });
+
+  function showVideoPlaceholder(htmlText) {
+    let overlay = document.getElementById('camRetryOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'camRetryOverlay';
+      overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.8);color:#58a6ff;text-align:center;cursor:pointer;padding:16px;font-size:0.95rem;z-index:10;';
+      overlay.addEventListener('click', async () => {
+        overlay.innerHTML = 'กำลังเปิดกล้อง...';
+        await startCameraWithRetry();
+      });
+      camVideo.parentElement.appendChild(overlay);
+    }
+    overlay.innerHTML = htmlText;
+    overlay.style.display = 'flex';
+  }
+
+  function hideVideoPlaceholder() {
+    const overlay = document.getElementById('camRetryOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  async function startCameraWithRetry() {
+    try {
+      // Ensure element autoplay requirements in WebView
+      camVideo.muted = true;
+      camVideo.defaultMuted = true;
+      camVideo.setAttribute('playsinline', '');
+      camVideo.setAttribute('autoplay', '');
+      camVideo.setAttribute('muted', '');
+
+      cameraStream = await cameraCtrl.start('environment', '720p');
+      hideVideoPlaceholder();
+      return true;
+    } catch (e) {
+      console.warn('[App] Start camera initial attempt failed:', e);
+      const errMsg = e && (e.name || e.message) ? ` (${e.name || e.message})` : '';
+      showVideoPlaceholder(`แตะเพื่อลองเปิดกล้องใหม่<br><small>โปรดอนุญาตสิทธิ์กล้องในเครื่อง${errMsg}</small>`);
+      return false;
+    }
+  }
 
   // When video plays (either first start or after flip), give sensor 2.5s to settle auto-exposure
   camVideo.addEventListener('playing', () => {
     console.log('[Camera] Video playing/switched -> stabilizing sensor');
+    hideVideoPlaceholder();
     if (motionDetector) {
       motionDetector.pause(2500);
     }
   });
 
-  try {
-    cameraStream = await cameraCtrl.start('environment', '720p');
-  } catch (e) {
-    console.error('[App] Start camera error:', e);
-  }
+  // Clicking/tapping video element retries starting the camera if stopped or paused
+  camVideo.parentElement.addEventListener('click', async (e) => {
+    if (e.target.closest('#camRetryOverlay')) return;
+    if (!cameraStream || !cameraStream.active || camVideo.paused) {
+      console.log('[App] Video clicked while not playing, attempting restart...');
+      await startCameraWithRetry();
+    }
+  });
+
+  // Listen for native permission grant event from Android MainActivity
+  window.addEventListener('cameraPermissionGranted', async () => {
+    console.log('[App] cameraPermissionGranted event received, starting camera...');
+    await startCameraWithRetry();
+  });
+
+  // Initial camera start
+  await startCameraWithRetry();
 
   // 4. Initialize Local Video Recorder
   let recTickerInterval = null;
@@ -365,13 +420,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function activateOledMode() {
     if (oledOverlay.classList.contains('active')) return;
     oledOverlay.classList.add('active');
-    camVideo.style.visibility = 'hidden'; // Turn off video GPU surface rendering
     if (oledWakeHint) oledWakeHint.classList.remove('show');
   }
 
   function deactivateOledMode() {
     oledOverlay.classList.remove('active');
-    camVideo.style.visibility = 'visible';
     if (oledWakeHint) oledWakeHint.classList.remove('show');
     if (wakeHintTimer) {
       clearTimeout(wakeHintTimer);

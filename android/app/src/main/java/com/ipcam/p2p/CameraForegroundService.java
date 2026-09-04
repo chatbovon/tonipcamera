@@ -1,4 +1,4 @@
-﻿package com.ipcam.p2p;
+package com.ipcam.p2p;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -17,22 +17,38 @@ import androidx.core.app.NotificationCompat;
 public class CameraForegroundService extends Service {
     public static final String ACTION_START = "ACTION_START";
     public static final String ACTION_STOP = "ACTION_STOP";
+    public static final String ACTION_START_NATIVE_CAM = "ACTION_START_NATIVE_CAM";
+    public static final String ACTION_STOP_NATIVE_CAM = "ACTION_STOP_NATIVE_CAM";
+
     private static final String CHANNEL_ID = "ipcam_stream_channel";
     private static final int NOTIFICATION_ID = 1001;
 
     private PowerManager.WakeLock wakeLock;
+    private NativeCameraEngine nativeCameraEngine;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        nativeCameraEngine = NativeCameraEngine.getInstance(this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
-            stopForegroundService();
-            return START_NOT_STICKY;
+        if (intent != null) {
+            String action = intent.getAction();
+            if (ACTION_STOP.equals(action)) {
+                stopForegroundService();
+                return START_NOT_STICKY;
+            } else if (ACTION_START_NATIVE_CAM.equals(action)) {
+                if (nativeCameraEngine != null) {
+                    nativeCameraEngine.start(1280, 720, 20);
+                }
+            } else if (ACTION_STOP_NATIVE_CAM.equals(action)) {
+                if (nativeCameraEngine != null) {
+                    nativeCameraEngine.stop();
+                }
+            }
         }
 
         startForegroundService();
@@ -73,7 +89,7 @@ public class CameraForegroundService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("IP Camera Active")
-            .setContentText("Background streaming and motion detection active 24/7")
+            .setContentText("Continuous background hardware streaming active 24/7")
             .setSmallIcon(iconRes)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -90,6 +106,9 @@ public class CameraForegroundService extends Service {
     }
 
     private void stopForegroundService() {
+        if (nativeCameraEngine != null) {
+            nativeCameraEngine.stop();
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;
@@ -101,6 +120,9 @@ public class CameraForegroundService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        if (nativeCameraEngine != null) {
+            nativeCameraEngine.stop();
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;

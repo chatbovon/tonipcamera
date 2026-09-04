@@ -88,15 +88,44 @@ class MotionDetector {
     if (this.isRunning) return;
     this.isRunning = true;
     this.prevFrame = null;
-    console.log('[Motion] Detector started');
+    console.log('[Motion] Detector started (Worker unthrottled loop)');
 
-    this.timer = setInterval(() => {
-      this._analyzeFrame();
-    }, this.intervalMs);
+    // Use Web Worker timer so Android WebView / Chromium never throttles frame analysis when screen is off
+    try {
+      const blob = new Blob([
+        `let timer = null;
+         self.onmessage = function(e) {
+           if (e.data === 'start') {
+             if (timer) clearInterval(timer);
+             timer = setInterval(() => self.postMessage('tick'), ${this.intervalMs});
+           } else if (e.data === 'stop') {
+             if (timer) { clearInterval(timer); timer = null; }
+           }
+         };`
+      ], { type: 'application/javascript' });
+      const workerUrl = URL.createObjectURL(blob);
+      this.worker = new Worker(workerUrl);
+      this.worker.onmessage = () => {
+        this._analyzeFrame();
+      };
+      this.worker.postMessage('start');
+    } catch (e) {
+      console.warn('[Motion] Worker fallback to setInterval:', e);
+      this.timer = setInterval(() => {
+        this._analyzeFrame();
+      }, this.intervalMs);
+    }
   }
 
   stop() {
     this.isRunning = false;
+    if (this.worker) {
+      try {
+        this.worker.postMessage('stop');
+        this.worker.terminate();
+      } catch (ignored) {}
+      this.worker = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

@@ -27,7 +27,10 @@ class CameraController {
       this.stream.getTracks().forEach(t => t.stop());
     }
 
-    const resConfig = CONFIG.resolutions[this.currentResolution] || CONFIG.resolutions['720p'];
+    let resConfig = { width: 1280, height: 720, frameRate: 30 };
+    if (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.resolutions) {
+      resConfig = CONFIG.resolutions[this.currentResolution] || CONFIG.resolutions['720p'] || resConfig;
+    }
 
     const constraints = {
       video: {
@@ -46,8 +49,14 @@ class CameraController {
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.videoElement.muted = true;
+      this.videoElement.defaultMuted = true;
       this.videoElement.srcObject = this.stream;
-      await this.videoElement.play();
+      try {
+        await this.videoElement.play();
+      } catch (playErr) {
+        console.warn('[Camera] Autoplay was prevented, will play on user tap:', playErr);
+      }
 
       console.log(`[Camera] Started successfully (${this.currentFacingMode}, ${this.currentResolution})`);
 
@@ -68,8 +77,10 @@ class CameraController {
           video: { facingMode: this.currentFacingMode },
           audio: true
         });
+        this.videoElement.muted = true;
+        this.videoElement.defaultMuted = true;
         this.videoElement.srcObject = this.stream;
-        await this.videoElement.play();
+        try { await this.videoElement.play(); } catch (e) {}
         this.callbacks.onStreamReady(this.stream);
         return this.stream;
       } catch (e1) {
@@ -79,8 +90,10 @@ class CameraController {
       // Fallback 2: Try basic video without audio constraint (in case mic was locked)
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        this.videoElement.muted = true;
+        this.videoElement.defaultMuted = true;
         this.videoElement.srcObject = this.stream;
-        await this.videoElement.play();
+        try { await this.videoElement.play(); } catch (e) {}
         this.callbacks.onStreamReady(this.stream);
         return this.stream;
       } catch (fallbackErr) {
