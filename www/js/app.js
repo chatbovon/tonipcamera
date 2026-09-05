@@ -125,7 +125,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (overlay) overlay.style.display = 'none';
   }
 
+  const camNativePreview = document.getElementById('camNativePreview');
+  const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
   async function startCameraWithRetry() {
+    if (isCapacitor) {
+      // Running inside Android APK:
+      // NativeCameraEngine runs inside CameraForegroundService with 100% exclusive hardware access.
+      // We avoid calling HTML5 getUserMedia so there is zero camera sensor contention or sleep pausing!
+      if (camNativePreview) {
+        camVideo.style.display = 'none';
+        camNativePreview.style.display = 'block';
+        camNativePreview.src = 'http://127.0.0.1:8888/live';
+      }
+      hideVideoPlaceholder();
+      return true;
+    }
+
     try {
       // Ensure element autoplay requirements in WebView
       camVideo.muted = true;
@@ -358,8 +374,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     NativeCam.addListener('onNativeFrame', (data) => {
-      if (data && data.frame && webrtcCam) {
-        webrtcCam.sendNativeFrame(data.frame);
+      if (data && data.frame) {
+        if (camNativePreview && camNativePreview.style.display === 'block') {
+          camNativePreview.src = 'data:image/jpeg;base64,' + data.frame;
+        }
+        if (webrtcCam) {
+          webrtcCam.sendNativeFrame(data.frame);
+        }
       }
     });
 
