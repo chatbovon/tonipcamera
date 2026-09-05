@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnJoinRoom = document.getElementById('btnJoinRoom');
   const statusBadge = document.getElementById('statusBadge');
   const remoteVideo = document.getElementById('remoteVideo');
+  const remoteCanvas = document.getElementById('remoteCanvas');
   const videoPlaceholder = document.getElementById('videoPlaceholder');
   const hintRoomId = document.getElementById('hintRoomId');
   const osdRecTag = document.getElementById('osdRecTag');
@@ -89,9 +90,18 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentClipRequest = null;
   let currentCameraFpsMode = { isLowFps: false, fps: 30 };
   let currentMeasuredFps = 30;
+  let nativeFramesReceivedCount = 0;
+  let lastNativeFrameTime = 0;
+  let nativeFps = 0;
+  let isUsingNativeStream = false;
 
   function updateFpsDisplay() {
     if (!statFps) return;
+    if (isUsingNativeStream && Date.now() - lastNativeFrameTime < 3000) {
+      statFps.textContent = `🔒 ${currentMeasuredFps} FPS (จอดับ/เบื้องหลัง)`;
+      statFps.style.color = 'var(--accent-green)';
+      return;
+    }
     const isEco = currentCameraFpsMode && currentCameraFpsMode.isLowFps;
     if (isEco) {
       statFps.textContent = `🔋 ECO (${currentMeasuredFps} FPS)`;
@@ -292,6 +302,22 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log(`[Viewer] Camera FPS mode changed: ${isLowFps ? 'ECO' : 'ACTIVE'} (${fps} FPS)`);
       currentCameraFpsMode = { isLowFps, fps };
       updateFpsDisplay();
+    },
+
+    onNativeFrame: (base64Frame) => {
+      if (videoPlaceholder) videoPlaceholder.style.display = 'none';
+      if (remoteVideo) remoteVideo.style.display = 'none';
+      if (remoteCanvas) {
+        remoteCanvas.style.display = 'block';
+        remoteCanvas.src = 'data:image/jpeg;base64,' + base64Frame;
+      }
+      isUsingNativeStream = true;
+      nativeFramesReceivedCount++;
+      lastNativeFrameTime = Date.now();
+    },
+
+    onLocalStreamInfo: (info) => {
+      console.log('[Viewer] Native Stream Info:', info);
     },
 
     onClipDownloadComplete: ({ clipId, blob }) => {
@@ -696,11 +722,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // WebRTC Stats Monitoring
+  // WebRTC & Native Stats Monitoring
   let statsTimer = null;
   function startStatsMonitor() {
     if (statsTimer) clearInterval(statsTimer);
     statsTimer = setInterval(async () => {
+      // 1. If receiving native background frames (phone screen locked/off)
+      if (isUsingNativeStream && (Date.now() - lastNativeFrameTime < 3500)) {
+        currentMeasuredFps = nativeFramesReceivedCount;
+        nativeFramesReceivedCount = 0;
+        updateFpsDisplay();
+        if (statRes) statRes.textContent = "Native HD";
+        return;
+      }
+
+      // 2. Otherwise use WebRTC video track stats
       const stats = await viewer.getStats();
       if (stats) {
         if (stats.fps !== undefined && stats.fps !== null) {
@@ -709,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (stats.resolution) statRes.textContent = stats.resolution;
       }
-    }, 2000);
+    }, 1000);
   }
 
   function stopStatsMonitor() {

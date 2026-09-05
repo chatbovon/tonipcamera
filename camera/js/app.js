@@ -332,10 +332,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
     onRemoteCommand: (msg) => {
       if (msg.action === 'toggleTorch') {
-        btnTorch.classList.toggle('active', cameraCtrl.isTorchOn);
+        if (NativeCam) {
+          NativeCam.toggleTorch().then(r => btnTorch.classList.toggle('active', r.isTorchOn));
+        } else {
+          btnTorch.classList.toggle('active', cameraCtrl.isTorchOn);
+        }
+      } else if (msg.action === 'switchCamera') {
+        if (NativeCam) {
+          NativeCam.switchCamera();
+        }
       }
     }
   });
+
+  // 6.1 Connect Native Camera Engine for 24/7 background streaming & screen lock
+  const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const NativeCam = isCapacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.NativeCam : null;
+
+  if (NativeCam) {
+    console.log('[App] NativeCam detected -> Starting Native Camera2 Engine in background');
+    NativeCam.startNativeFeed().then(() => {
+      console.log('[App] Native camera background engine active 24/7');
+    }).catch(err => {
+      console.warn('[App] NativeCam init error:', err);
+    });
+
+    NativeCam.addListener('onNativeFrame', (data) => {
+      if (data && data.frame && webrtcCam) {
+        webrtcCam.sendNativeFrame(data.frame);
+      }
+    });
+
+    NativeCam.addListener('onNativeMotion', (data) => {
+      wakeToHighFps();
+      if (motionDetector) {
+        motionDetector.onNativeMotion(data.score);
+      }
+      if (webrtcCam) {
+        webrtcCam.sendMessage('motionAlert', { score: data.score, timestamp: Date.now() });
+      }
+    });
+
+    window.addEventListener('ipcam:screenOff', () => {
+      console.log('[App] Screen OFF event -> Native Camera2 pipeline active in background');
+    });
+  }
 
   // 7. Initialize P2P Signaling via Free MQTT Broker
   const signaling = new P2PSignaling(roomId, 'camera', {
@@ -393,6 +434,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnFlipCam.disabled = true;
     motionDetector.pause(4000); // Mute motion false alarm while switching camera
     try {
+      if (NativeCam) {
+        await NativeCam.switchCamera();
+      }
       await cameraCtrl.switchCamera();
     } finally {
       btnFlipCam.disabled = false;
@@ -400,8 +444,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   btnTorch.addEventListener('click', async () => {
-    const state = await cameraCtrl.toggleTorch();
-    btnTorch.classList.toggle('active', state);
+    if (NativeCam) {
+      const res = await NativeCam.toggleTorch();
+      btnTorch.classList.toggle('active', res.isTorchOn);
+    } else {
+      const state = await cameraCtrl.toggleTorch();
+      btnTorch.classList.toggle('active', state);
+    }
   });
 
   btnRecord.addEventListener('click', () => {

@@ -18,7 +18,9 @@ class WebRTCViewer {
       onSettingsData: options.onSettingsData || (() => {}),
       onStorageUsage: options.onStorageUsage || (() => {}),
       onFpsMode: options.onFpsMode || (() => {}),
-      onTorchStatus: options.onTorchStatus || (() => {})
+      onTorchStatus: options.onTorchStatus || (() => {}),
+      onNativeFrame: options.onNativeFrame || (() => {}),
+      onLocalStreamInfo: options.onLocalStreamInfo || (() => {})
     };
 
     this.peerConnection = null;
@@ -199,6 +201,18 @@ class WebRTCViewer {
 
       case 'torchStatus':
         this.callbacks.onTorchStatus(payload);
+        break;
+
+      case 'nativeFrame':
+        if (payload && payload.frame) {
+          this.callbacks.onNativeFrame(payload.frame);
+        }
+        break;
+
+      case 'localStreamInfo':
+        if (payload) {
+          this.callbacks.onLocalStreamInfo(payload);
+        }
         break;
 
       case 'clipsList':

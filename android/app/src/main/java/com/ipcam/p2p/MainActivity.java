@@ -118,7 +118,6 @@ public class MainActivity extends BridgeActivity {
     }
 
     private android.content.BroadcastReceiver screenReceiver;
-    private PowerManager.WakeLock screenWakeLock;
 
     private void configureWebView() {
         try {
@@ -145,24 +144,24 @@ public class MainActivity extends BridgeActivity {
                 String action = intent.getAction();
                 if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                     // Power button pressed or screen turned off!
-                    // Immediately wake CPU and ensure WebView + WebRTC keeps streaming
-                    acquireScreenWakeLock();
+                    // CameraForegroundService keeps CPU & Camera2 hardware alive 24/7.
+                    // Keep WebView timers running and inform web layer.
                     runOnUiThread(() -> {
                         try {
                             WebView webView = getBridge().getWebView();
                             if (webView != null) {
                                 webView.resumeTimers();
-                                // Trigger OLED blackout overlay in web UI so phone uses zero screen power
-                                webView.evaluateJavascript("if (typeof activateOledMode === 'function') { activateOledMode(); }", null);
+                                webView.evaluateJavascript("window.dispatchEvent(new Event('ipcam:screenOff')); if (typeof activateOledMode === 'function') { activateOledMode(); }", null);
                             }
                         } catch (Exception ignored) {}
                     });
-                } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                } else if (Intent.ACTION_SCREEN_ON.equals(action) || Intent.ACTION_USER_PRESENT.equals(action)) {
                     runOnUiThread(() -> {
                         try {
                             WebView webView = getBridge().getWebView();
                             if (webView != null) {
                                 webView.resumeTimers();
+                                webView.evaluateJavascript("window.dispatchEvent(new Event('ipcam:screenOn'));", null);
                             }
                         } catch (Exception ignored) {}
                     });
@@ -175,25 +174,6 @@ public class MainActivity extends BridgeActivity {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         registerReceiver(screenReceiver, filter);
-    }
-
-    private void acquireScreenWakeLock() {
-        try {
-            if (screenWakeLock == null) {
-                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                if (pm != null) {
-                    screenWakeLock = pm.newWakeLock(
-                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                        "IPCam::ScreenKeepAlive"
-                    );
-                    screenWakeLock.setReferenceCounted(false);
-                }
-            }
-            if (screenWakeLock != null && !screenWakeLock.isHeld()) {
-                // Wake up screen instantly for 3 seconds then release so screen stays awake with FLAG_KEEP_SCREEN_ON
-                screenWakeLock.acquire(3000);
-            }
-        } catch (Exception ignored) {}
     }
 
     @Override
@@ -226,12 +206,6 @@ public class MainActivity extends BridgeActivity {
             try {
                 unregisterReceiver(screenReceiver);
                 screenReceiver = null;
-            } catch (Exception ignored) {}
-        }
-        if (screenWakeLock != null && screenWakeLock.isHeld()) {
-            try {
-                screenWakeLock.release();
-                screenWakeLock = null;
             } catch (Exception ignored) {}
         }
         super.onDestroy();

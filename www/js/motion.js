@@ -222,6 +222,23 @@ class MotionDetector {
     }
   }
 
+  onNativeMotion(score) {
+    if (!this.isEnabled || !this.isWithinSchedule()) return;
+    this.onScoreUpdate(score);
+    const triggerThreshold = Math.max(0.5, (105 - this.sensitivity) / 18);
+    if (score >= triggerThreshold) {
+      const now = Date.now();
+      if (now - this.lastAlertTime >= this.cooldownMs) {
+        this.lastAlertTime = now;
+        console.log(`[Motion] Native Motion Detected! Score: ${score.toFixed(1)}%`);
+        if (this.soundAlertEnabled) {
+          this._playBeep();
+        }
+        this.onMotion({ score, timestamp: now });
+      }
+    }
+  }
+
   _playBeep() {
     try {
       if (!this.audioCtx) {

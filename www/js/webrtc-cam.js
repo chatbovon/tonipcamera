@@ -24,6 +24,17 @@ class WebRTCCamera {
     this.signaling = signaling;
   }
 
+  sendNativeFrame(base64Frame) {
+    if (this.dataChannel && this.dataChannel.readyState === 'open' && this.dataChannel.bufferedAmount < 65536) {
+      try {
+        this.dataChannel.send(JSON.stringify({
+          type: 'nativeFrame',
+          payload: { frame: base64Frame }
+        }));
+      } catch (e) {}
+    }
+  }
+
   updateStream(newStream) {
     this.stream = newStream;
     if (this.peerConnection) {
@@ -84,6 +95,11 @@ class WebRTCCamera {
         // Send current FPS mode upon connection
         if (window.currentCamFpsMode !== undefined) {
           this.sendMessage('fpsMode', window.currentCamFpsMode);
+        }
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativeCam) {
+          window.Capacitor.Plugins.NativeCam.getStreamInfo().then(info => {
+            this.sendMessage('localStreamInfo', info);
+          }).catch(() => {});
         }
       }
     };

@@ -25,26 +25,48 @@ import java.util.Collections;
  * NativeCameraEngine: Opens Android hardware camera via Camera2 API
  * and feeds frames into an offscreen ImageReader in RAM.
  * Runs completely independent of Activity UI and survives screen lock / power off.
+ * Includes native motion detection, torch control, and camera switching.
  */
 public class NativeCameraEngine {
     private static final String TAG = "NativeCameraEngine";
     private static NativeCameraEngine instance;
 
     private final Context context;
-    private CameraManager cameraManager;
+    private final CameraManager cameraManager;
     private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
+    private CaptureRequest.Builder captureRequestBuilder;
     private ImageReader imageReader;
     private HandlerThread backgroundThread;
     private Handler backgroundHandler;
 
     private boolean isRunning = false;
-    private byte[] latestJpegFrame = null;
+    private int currentFacing = CameraCharacteristics.LENS_FACING_BACK;
+    private boolean isTorchOn = false;
+    private int targetWidth = 640;
+    private int targetHeight = 480;
+    private int targetFps = 20;
+
+    private volatile byte[] latestJpegFrame = null;
     private long lastFrameTime = 0;
+    private final long minFrameIntervalMs = 50; // Max 20 fps
+
+    // Motion Detection state
+    private boolean motionEnabled = true;
+    private int motionSensitivity = 25; // 1 - 100
+    private byte[] prevLumaGrid = null;
+    private static final int GRID_COLS = 32;
+    private static final int GRID_ROWS = 24;
+
     private FrameCallback frameCallback;
+    private MotionCallback motionCallback;
 
     public interface FrameCallback {
         void onFrameCaptured(byte[] jpegData);
+    }
+
+    public interface MotionCallback {
+        void onMotionDetected(float score);
     }
 
     public static synchronized NativeCameraEngine getInstance(Context context) {
@@ -63,25 +85,53 @@ public class NativeCameraEngine {
         this.frameCallback = callback;
     }
 
+    public void setMotionCallback(MotionCallback callback) {
+        this.motionCallback = callback;
+    }
+
+    public void setMotionSensitivity(int sensitivity) {
+        this.motionSensitivity = Math.max(5, Math.min(95, sensitivity));
+    }
+
+    public void setMotionEnabled(boolean enabled) {
+        this.motionEnabled = enabled;
+    }
+
     public byte[] getLatestJpegFrame() {
         return latestJpegFrame;
     }
 
-    public synchronized void start(int width, int height, int targetFps) {
-        if (isRunning) return;
-        isRunning = true;
-        Log.i(TAG, "Starting NativeCameraEngine (" + width + "x" + height + " @" + targetFps + "fps)");
+    public boolean isRunning() {
+        return isRunning;
+    }
 
+    public boolean isTorchOn() {
+        return isTorchOn;
+    }
+
+    public int getCurrentFacing() {
+        return currentFacing;
+    }
+
+    public synchronized void start(int width, int height, int fps) {
+        if (isRunning) return;
+        this.targetWidth = width > 0 ? width : 640;
+        this.targetHeight = height > 0 ? height : 480;
+        this.targetFps = fps > 0 ? fps : 20;
+        this.isRunning = true;
+
+        Log.i(TAG, "Starting NativeCameraEngine (" + targetWidth + "x" + targetHeight + " @" + targetFps + "fps)");
         startBackgroundThread();
 
         try {
-            String cameraId = chooseCameraId(CameraCharacteristics.LENS_FACING_BACK);
+            String cameraId = chooseCameraId(currentFacing);
             if (cameraId == null) {
-                Log.e(TAG, "No suitable back camera found!");
+                Log.e(TAG, "No suitable camera found for facing: " + currentFacing);
+                isRunning = false;
                 return;
             }
 
-            imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 2);
+            imageReader = ImageReader.newInstance(targetWidth, targetHeight, ImageFormat.YUV_420_888, 2);
             imageReader.setOnImageAvailableListener(reader -> {
                 Image image = null;
                 try {
@@ -101,6 +151,7 @@ public class NativeCameraEngine {
             openCamera(cameraId);
         } catch (Exception e) {
             Log.e(TAG, "Failed to start camera engine", e);
+            isRunning = false;
         }
     }
 
@@ -134,6 +185,12 @@ public class NativeCameraEngine {
         if (cameraDevice == null || imageReader == null) return;
 
         try {
+            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            captureRequestBuilder.addTarget(imageReader.getSurface());
+            captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+            applyTorchSetting();
+
             cameraDevice.createCaptureSession(
                 Collections.singletonList(imageReader.getSurface()),
                 new CameraCaptureSession.StateCallback() {
@@ -142,13 +199,8 @@ public class NativeCameraEngine {
                         if (cameraDevice == null) return;
                         captureSession = session;
                         try {
-                            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-                            builder.addTarget(imageReader.getSurface());
-                            builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
-                            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
-                            
-                            session.setRepeatingRequest(builder.build(), null, backgroundHandler);
-                            Log.i(TAG, "Repeating capture request initiated successfully");
+                            session.setRepeatingRequest(captureRequestBuilder.build(), null, backgroundHandler);
+                            Log.i(TAG, "Repeating capture request running in background 24/7");
                         } catch (CameraAccessException e) {
                             Log.e(TAG, "Failed to start repeating request", e);
                         }
@@ -168,13 +220,19 @@ public class NativeCameraEngine {
 
     private void processImage(Image image) {
         long now = System.currentTimeMillis();
-        if (now - lastFrameTime < 50) { // max 20 fps
+        if (now - lastFrameTime < minFrameIntervalMs) {
             return;
         }
         lastFrameTime = now;
 
         try {
-            byte[] jpeg = yuv420ToJpeg(image, 60);
+            // 1. Native Motion Detection on Luminance plane
+            if (motionEnabled) {
+                detectMotion(image);
+            }
+
+            // 2. Convert to compressed JPEG byte array
+            byte[] jpeg = yuv420ToJpeg(image, 50);
             if (jpeg != null && jpeg.length > 0) {
                 latestJpegFrame = jpeg;
                 if (frameCallback != null) {
@@ -182,8 +240,57 @@ public class NativeCameraEngine {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error converting frame to JPEG", e);
+            Log.e(TAG, "Error processing frame", e);
         }
+    }
+
+    private void detectMotion(Image image) {
+        try {
+            Image.Plane yPlane = image.getPlanes()[0];
+            ByteBuffer buffer = yPlane.getBuffer();
+            int width = image.getWidth();
+            int height = image.getHeight();
+            int rowStride = yPlane.getRowStride();
+            int pixelStride = yPlane.getPixelStride();
+
+            byte[] currentGrid = new byte[GRID_COLS * GRID_ROWS];
+            int stepX = width / GRID_COLS;
+            int stepY = height / GRID_ROWS;
+
+            int gridIdx = 0;
+            for (int r = 0; r < GRID_ROWS; r++) {
+                int y = r * stepY;
+                int rowOffset = y * rowStride;
+                for (int c = 0; c < GRID_COLS; c++) {
+                    int x = c * stepX;
+                    int index = rowOffset + x * pixelStride;
+                    if (index < buffer.limit()) {
+                        currentGrid[gridIdx++] = buffer.get(index);
+                    }
+                }
+            }
+
+            if (prevLumaGrid != null) {
+                int diffCount = 0;
+                int totalCells = GRID_COLS * GRID_ROWS;
+                int threshold = 25; // Pixel change threshold
+
+                for (int i = 0; i < totalCells; i++) {
+                    int diff = Math.abs((currentGrid[i] & 0xFF) - (prevLumaGrid[i] & 0xFF));
+                    if (diff > threshold) {
+                        diffCount++;
+                    }
+                }
+
+                float score = ((float) diffCount / totalCells) * 100.0f;
+                if (score >= motionSensitivity) {
+                    if (motionCallback != null) {
+                        motionCallback.onMotionDetected(score);
+                    }
+                }
+            }
+            prevLumaGrid = currentGrid;
+        } catch (Exception ignored) {}
     }
 
     private byte[] yuv420ToJpeg(Image image, int quality) {
@@ -223,6 +330,39 @@ public class NativeCameraEngine {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         yuvImage.compressToJpeg(new Rect(0, 0, width, height), quality, out);
         return out.toByteArray();
+    }
+
+    public synchronized void toggleTorch(boolean on) {
+        this.isTorchOn = on;
+        applyTorchSetting();
+        if (captureSession != null && captureRequestBuilder != null) {
+            try {
+                captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, backgroundHandler);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to apply torch to active session: " + e.getMessage());
+            }
+        }
+    }
+
+    private void applyTorchSetting() {
+        if (captureRequestBuilder != null) {
+            if (isTorchOn) {
+                captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
+            } else {
+                captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
+            }
+        }
+    }
+
+    public synchronized void switchCamera() {
+        int nextFacing = (currentFacing == CameraCharacteristics.LENS_FACING_BACK)
+            ? CameraCharacteristics.LENS_FACING_FRONT
+            : CameraCharacteristics.LENS_FACING_BACK;
+        currentFacing = nextFacing;
+        if (isRunning) {
+            stop();
+            start(targetWidth, targetHeight, targetFps);
+        }
     }
 
     private String chooseCameraId(int facing) {
