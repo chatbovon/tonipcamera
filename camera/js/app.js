@@ -127,21 +127,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const camNativePreview = document.getElementById('camNativePreview');
   const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const NativeCam = isCapacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.NativeCam : null;
 
   async function startCameraWithRetry() {
-    if (isCapacitor) {
-      // Running inside Android APK:
-      // NativeCameraEngine runs inside CameraForegroundService with 100% exclusive hardware access.
-      // We avoid calling HTML5 getUserMedia so there is zero camera sensor contention or sleep pausing!
-      if (camNativePreview) {
-        camVideo.style.display = 'none';
-        camNativePreview.style.display = 'block';
-        camNativePreview.src = 'http://127.0.0.1:8888/live';
-      }
-      hideVideoPlaceholder();
-      return true;
-    }
-
     try {
       // Ensure element autoplay requirements in WebView
       camVideo.muted = true;
@@ -151,6 +139,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       camVideo.setAttribute('muted', '');
 
       cameraStream = await cameraCtrl.start('environment', '720p');
+      if (camNativePreview) camNativePreview.style.display = 'none';
+      camVideo.style.display = 'block';
       hideVideoPlaceholder();
       return true;
     } catch (e) {
@@ -354,50 +344,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           btnTorch.classList.toggle('active', cameraCtrl.isTorchOn);
         }
       } else if (msg.action === 'switchCamera') {
-        if (NativeCam) {
-          NativeCam.switchCamera();
-        }
+        cameraCtrl.switchCamera().catch(e => console.warn('[App] Remote switchCamera err:', e));
       }
     }
   });
 
-  // 6.1 Connect Native Camera Engine for 24/7 background streaming & screen lock
-  const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  const NativeCam = isCapacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.NativeCam : null;
-
-  if (NativeCam) {
-    console.log('[App] NativeCam detected -> Starting Native Camera2 Engine in background');
-    NativeCam.startNativeFeed().then(() => {
-      console.log('[App] Native camera background engine active 24/7');
-    }).catch(err => {
-      console.warn('[App] NativeCam init error:', err);
-    });
-
-    NativeCam.addListener('onNativeFrame', (data) => {
-      if (data && data.frame) {
-        if (camNativePreview && camNativePreview.style.display === 'block') {
-          camNativePreview.src = 'data:image/jpeg;base64,' + data.frame;
-        }
-        if (webrtcCam) {
-          webrtcCam.sendNativeFrame(data.frame);
-        }
-      }
-    });
-
-    NativeCam.addListener('onNativeMotion', (data) => {
-      wakeToHighFps();
-      if (motionDetector) {
-        motionDetector.onNativeMotion(data.score);
-      }
-      if (webrtcCam) {
-        webrtcCam.sendMessage('motionAlert', { score: data.score, timestamp: Date.now() });
-      }
-    });
-
-    window.addEventListener('ipcam:screenOff', () => {
-      console.log('[App] Screen OFF event -> Native Camera2 pipeline active in background');
-    });
-  }
+  // 6.1 Screen state handlers for continuous streaming on power press / screen off
+  window.addEventListener('ipcam:screenOff', () => {
+    console.log('[App] Screen OFF event -> activating OLED black screen mode');
+    activateOledMode();
+  });
+  window.addEventListener('ipcam:screenOn', () => {
+    console.log('[App] Screen ON event -> deactivating OLED mode');
+    deactivateOledMode();
+  });
 
   // 7. Initialize P2P Signaling via Free MQTT Broker
   const signaling = new P2PSignaling(roomId, 'camera', {
@@ -455,23 +415,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnFlipCam.disabled = true;
     motionDetector.pause(4000); // Mute motion false alarm while switching camera
     try {
-      if (NativeCam) {
-        await NativeCam.switchCamera();
-      }
       await cameraCtrl.switchCamera();
+    } catch (e) {
+      console.warn('[Camera] Flip failed:', e);
     } finally {
       btnFlipCam.disabled = false;
     }
   });
 
   btnTorch.addEventListener('click', async () => {
-    if (NativeCam) {
-      const res = await NativeCam.toggleTorch();
-      btnTorch.classList.toggle('active', res.isTorchOn);
-    } else {
-      const state = await cameraCtrl.toggleTorch();
-      btnTorch.classList.toggle('active', state);
+    if (NativeCam && typeof NativeCam.toggleTorch === 'function') {
+      try {
+        const res = await NativeCam.toggleTorch();
+        btnTorch.classList.toggle('active', res.isTorchOn);
+        if (webrtcCam) webrtcCam.sendMessage('torchStatus', { isTorchOn: res.isTorchOn });
+        return;
+      } catch (e) {
+        console.warn('[Torch] Native torch failed, fallback to cameraCtrl:', e);
+      }
     }
+    const state = await cameraCtrl.toggleTorch();
+    btnTorch.classList.toggle('active', state);
+    if (webrtcCam) webrtcCam.sendMessage('torchStatus', { isTorchOn: state });
   });
 
   btnRecord.addEventListener('click', () => {
@@ -491,6 +456,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (oledOverlay.classList.contains('active')) return;
     oledOverlay.classList.add('active');
     if (oledWakeHint) oledWakeHint.classList.remove('show');
+    if (NativeCam && typeof NativeCam.setScreenBrightness === 'function') {
+      NativeCam.setScreenBrightness({ brightness: 0.001 }).catch(() => {});
+    }
   }
 
   function deactivateOledMode() {
@@ -501,7 +469,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       wakeHintTimer = null;
     }
     lastMotionTime = Date.now();
+    if (NativeCam && typeof NativeCam.restoreScreenBrightness === 'function') {
+      NativeCam.restoreScreenBrightness().catch(() => {});
+    }
   }
+
+  window.activateOledMode = activateOledMode;
+  window.deactivateOledMode = deactivateOledMode;
 
   btnOledMode.addEventListener('click', activateOledMode);
 

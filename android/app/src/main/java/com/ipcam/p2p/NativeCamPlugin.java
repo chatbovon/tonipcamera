@@ -1,6 +1,9 @@
 package com.ipcam.p2p;
 
-import android.util.Base64;
+import android.content.Context;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.view.WindowManager;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -10,88 +13,92 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "NativeCam")
 public class NativeCamPlugin extends Plugin {
 
+    private boolean isTorchOn = false;
+
     @PluginMethod
-    public void startNativeFeed(PluginCall call) {
-        try {
-            NativeCameraEngine engine = NativeCameraEngine.getInstance(getContext());
-            if (!engine.isRunning()) {
-                engine.start(640, 480, 20);
+    public void setScreenBrightness(PluginCall call) {
+        Double b = call.getDouble("brightness", 0.001);
+        final float brightness = b != null ? b.floatValue() : 0.001f;
+        getActivity().runOnUiThread(() -> {
+            try {
+                WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+                lp.screenBrightness = brightness;
+                getActivity().getWindow().setAttributes(lp);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject(e.getMessage());
             }
+        });
+    }
 
-            engine.setFrameCallback(jpegData -> {
-                try {
-                    String b64 = Base64.encodeToString(jpegData, Base64.NO_WRAP);
-                    JSObject ret = new JSObject();
-                    ret.put("frame", b64);
-                    notifyListeners("onNativeFrame", ret);
-                } catch (Exception ignored) {}
-            });
+    @PluginMethod
+    public void restoreScreenBrightness(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                getActivity().getWindow().setAttributes(lp);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject(e.getMessage());
+            }
+        });
+    }
 
-            engine.setMotionCallback(score -> {
-                try {
-                    JSObject ret = new JSObject();
-                    ret.put("score", score);
-                    notifyListeners("onNativeMotion", ret);
-                } catch (Exception ignored) {}
-            });
-
-            call.resolve();
+    @PluginMethod
+    public void toggleTorch(PluginCall call) {
+        try {
+            CameraManager cm = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+            if (cm != null) {
+                String[] ids = cm.getCameraIdList();
+                for (String id : ids) {
+                    CameraCharacteristics chars = cm.getCameraCharacteristics(id);
+                    Boolean flash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    Integer facing = chars.get(CameraCharacteristics.LENS_FACING);
+                    if (flash != null && flash && facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) {
+                        isTorchOn = !isTorchOn;
+                        cm.setTorchMode(id, isTorchOn);
+                        JSObject ret = new JSObject();
+                        ret.put("isTorchOn", isTorchOn);
+                        call.resolve(ret);
+                        return;
+                    }
+                }
+            }
+            call.reject("Flash not available");
         } catch (Exception e) {
             call.reject(e.getMessage());
         }
     }
 
     @PluginMethod
-    public void getLatestFrame(PluginCall call) {
-        NativeCameraEngine engine = NativeCameraEngine.getInstance(getContext());
-        byte[] frame = engine.getLatestJpegFrame();
-        JSObject ret = new JSObject();
-        if (frame != null) {
-            ret.put("frame", Base64.encodeToString(frame, Base64.NO_WRAP));
-        } else {
-            ret.put("frame", (String) null);
-        }
-        call.resolve(ret);
+    public void startNativeFeed(PluginCall call) {
+        call.resolve();
     }
 
     @PluginMethod
-    public void toggleTorch(PluginCall call) {
-        NativeCameraEngine engine = NativeCameraEngine.getInstance(getContext());
-        boolean current = engine.isTorchOn();
-        engine.toggleTorch(!current);
+    public void getLatestFrame(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("isTorchOn", !current);
+        ret.put("frame", (String) null);
         call.resolve(ret);
     }
 
     @PluginMethod
     public void switchCamera(PluginCall call) {
-        NativeCameraEngine engine = NativeCameraEngine.getInstance(getContext());
-        engine.switchCamera();
         JSObject ret = new JSObject();
-        ret.put("facing", engine.getCurrentFacing());
+        ret.put("facing", "flipped");
         call.resolve(ret);
     }
 
     @PluginMethod
     public void getStreamInfo(PluginCall call) {
-        String ip = EmbeddedStreamServer.getLocalIpAddress(getContext());
-        int port = EmbeddedStreamServer.DEFAULT_PORT;
         JSObject ret = new JSObject();
-        ret.put("ip", ip);
-        ret.put("port", port);
-        ret.put("streamUrl", "http://" + ip + ":" + port + "/live");
-        ret.put("snapshotUrl", "http://" + ip + ":" + port + "/snapshot");
+        ret.put("status", "ok");
         call.resolve(ret);
     }
 
     @PluginMethod
     public void setMotionSettings(PluginCall call) {
-        Boolean enabled = call.getBoolean("enabled", true);
-        Integer sensitivity = call.getInt("sensitivity", 25);
-        NativeCameraEngine engine = NativeCameraEngine.getInstance(getContext());
-        if (enabled != null) engine.setMotionEnabled(enabled);
-        if (sensitivity != null) engine.setMotionSensitivity(sensitivity);
         call.resolve();
     }
 }

@@ -121,6 +121,8 @@ document.addEventListener('DOMContentLoaded', () => {
         statusBadge.classList.add('badge-connected');
         statusBadge.textContent = 'เชื่อมต่อสำเร็จ';
         videoPlaceholder.style.display = 'none';
+        if (remoteVideo) remoteVideo.style.display = 'block';
+        if (remoteCanvas) remoteCanvas.style.display = 'none';
         if (signaling) signaling.stopHeartbeat();
         startStatsMonitor();
       } else if (state === 'connecting') {
@@ -703,6 +705,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (btnToggleAudio) btnToggleAudio.addEventListener('click', toggleAudio);
+
+  remoteVideo.addEventListener('playing', () => {
+    if (videoPlaceholder) videoPlaceholder.style.display = 'none';
+    if (remoteVideo) remoteVideo.style.display = 'block';
+    if (remoteCanvas) remoteCanvas.style.display = 'none';
+  });
 
   // Click on video viewport to resume or toggle audio
   remoteVideo.addEventListener('click', () => {

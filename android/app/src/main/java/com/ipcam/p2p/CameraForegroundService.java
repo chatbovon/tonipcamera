@@ -24,15 +24,11 @@ public class CameraForegroundService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     private PowerManager.WakeLock wakeLock;
-    private NativeCameraEngine nativeCameraEngine;
-    private EmbeddedStreamServer streamServer;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        nativeCameraEngine = NativeCameraEngine.getInstance(this);
-        streamServer = new EmbeddedStreamServer(nativeCameraEngine, EmbeddedStreamServer.DEFAULT_PORT);
     }
 
     @Override
@@ -42,26 +38,11 @@ public class CameraForegroundService extends Service {
             if (ACTION_STOP.equals(action)) {
                 stopForegroundService();
                 return START_NOT_STICKY;
-            } else if (ACTION_START_NATIVE_CAM.equals(action)) {
-                ensureEnginesStarted();
-            } else if (ACTION_STOP_NATIVE_CAM.equals(action)) {
-                if (nativeCameraEngine != null) {
-                    nativeCameraEngine.stop();
-                }
             }
         }
 
         startForegroundService();
         return START_STICKY;
-    }
-
-    private void ensureEnginesStarted() {
-        if (nativeCameraEngine != null && !nativeCameraEngine.isRunning()) {
-            nativeCameraEngine.start(640, 480, 20);
-        }
-        if (streamServer != null) {
-            streamServer.start();
-        }
     }
 
     private void startForegroundService() {
@@ -97,8 +78,8 @@ public class CameraForegroundService extends Service {
         } catch (Exception ignored) {}
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("IP Camera Active")
-            .setContentText("Continuous background hardware streaming active 24/7")
+            .setContentTitle("IP Camera ทำงานตลอด 24 ชม.")
+            .setContentText("ระบบกล้องและสตรีมมิ่งทำงานต่อเนื่อง แม้กดปุ่ม Power ปิดหน้าจอ")
             .setSmallIcon(iconRes)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -112,18 +93,9 @@ public class CameraForegroundService extends Service {
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
-
-        // 4. Ensure native camera & embedded stream server are active
-        ensureEnginesStarted();
     }
 
     private void stopForegroundService() {
-        if (streamServer != null) {
-            streamServer.stop();
-        }
-        if (nativeCameraEngine != null) {
-            nativeCameraEngine.stop();
-        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;
@@ -135,12 +107,6 @@ public class CameraForegroundService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (streamServer != null) {
-            streamServer.stop();
-        }
-        if (nativeCameraEngine != null) {
-            nativeCameraEngine.stop();
-        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;

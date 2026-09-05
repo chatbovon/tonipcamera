@@ -144,13 +144,29 @@ public class MainActivity extends BridgeActivity {
                 String action = intent.getAction();
                 if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                     // Power button pressed or screen turned off!
-                    // CameraForegroundService keeps CPU & Camera2 hardware alive 24/7.
-                    // Keep WebView timers running and inform web layer.
+                    // 1. Instantly wake window surface so WindowManager doesn't destroy or suspend the GPU/camera surface
+                    try {
+                        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                        if (pm != null) {
+                            PowerManager.WakeLock wl = pm.newWakeLock(
+                                PowerManager.SCREEN_DIM_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                                "IPCam::PowerWake"
+                            );
+                            wl.acquire(1500);
+                        }
+                    } catch (Exception ignored) {}
+
+                    // 2. Set screen brightness to 0.001f (pitch black) and activate OLED black overlay
                     runOnUiThread(() -> {
                         try {
+                            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                            lp.screenBrightness = 0.001f;
+                            getWindow().setAttributes(lp);
+
                             WebView webView = getBridge().getWebView();
                             if (webView != null) {
                                 webView.resumeTimers();
+                                webView.onResume();
                                 webView.evaluateJavascript("window.dispatchEvent(new Event('ipcam:screenOff')); if (typeof activateOledMode === 'function') { activateOledMode(); }", null);
                             }
                         } catch (Exception ignored) {}
@@ -158,10 +174,15 @@ public class MainActivity extends BridgeActivity {
                 } else if (Intent.ACTION_SCREEN_ON.equals(action) || Intent.ACTION_USER_PRESENT.equals(action)) {
                     runOnUiThread(() -> {
                         try {
+                            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                            lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                            getWindow().setAttributes(lp);
+
                             WebView webView = getBridge().getWebView();
                             if (webView != null) {
                                 webView.resumeTimers();
-                                webView.evaluateJavascript("window.dispatchEvent(new Event('ipcam:screenOn'));", null);
+                                webView.onResume();
+                                webView.evaluateJavascript("window.dispatchEvent(new Event('ipcam:screenOn')); if (typeof deactivateOledMode === 'function') { deactivateOledMode(); }", null);
                             }
                         } catch (Exception ignored) {}
                     });
@@ -184,6 +205,7 @@ public class MainActivity extends BridgeActivity {
             WebView webView = this.getBridge().getWebView();
             if (webView != null) {
                 webView.resumeTimers();
+                webView.onResume();
             }
         } catch (Exception ignored) {}
     }
