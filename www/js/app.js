@@ -393,7 +393,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   signaling.connect();
 
   // 8. Generate QR Code for Viewer
-  const viewerUrl = `${window.location.origin}${window.location.pathname.replace('/camera/', '/viewer/')}?room=${roomId}`;
+  const viewerUrl = isCapacitor
+    ? `https://chatbovon.github.io/tonipcamera/viewer/?room=${roomId}`
+    : `${window.location.origin}${window.location.pathname.replace('/camera/', '/viewer/')}?room=${roomId}`;
   let qrCodeObj = null;
 
   function renderQrCode() {
