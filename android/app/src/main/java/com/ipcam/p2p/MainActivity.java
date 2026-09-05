@@ -223,6 +223,33 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // When user presses Home button or switches apps, enter Picture-in-Picture mode
+        // to keep the activity active in foreground and maintain camera streaming at 30 FPS!
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                android.app.PictureInPictureParams.Builder builder = new android.app.PictureInPictureParams.Builder();
+                android.util.Rational aspectRatio = new android.util.Rational(16, 9);
+                builder.setAspectRatio(aspectRatio);
+                enterPictureInPictureMode(builder.build());
+            } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, android.content.res.Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        try {
+            WebView webView = this.getBridge().getWebView();
+            if (webView != null) {
+                webView.resumeTimers();
+                webView.onResume();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
     public void onDestroy() {
         if (screenReceiver != null) {
             try {
